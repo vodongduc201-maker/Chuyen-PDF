@@ -1,0 +1,29 @@
+# Bỏ qua các file kết quả
+    *.xlsx
+    *.xls
+    
+    # Bỏ qua file PDF đầu vào (tránh lộ dữ liệu)
+    *.pdf
+    
+    # Bỏ qua thư mục ảo của Python
+    __pycache__/
+    venv/
+    .env
+    ```
+
+### 4. `LICENSE` (Giấy thông hành)
+Nếu bạn để code là Public, bạn nên chọn một loại bản quyền. 
+*   **MIT License:** Phổ biến nhất, cho phép người khác dùng thoải mái nhưng bạn không chịu trách nhiệm nếu có lỗi.
+
+### 5. Cấu trúc thư mục gợi ý
+Để chuyên nghiệp hơn nữa, bạn nên sắp xếp như sau:
+```text
+PDF-to-Excel-Tool/
+│
+├── data/               # Chứa file PDF mẫu (nếu cần)
+├── output/             # Thư mục chứa file Excel sau khi chuyển
+├── src/                # Chứa file code chính (main.py)
+├── .gitignore          # Chặn file rác
+├── README.md           # Hướng dẫn
+├── requirements.txt    # Danh sách thư viện
+└── LICENSE             # Bản quyền
