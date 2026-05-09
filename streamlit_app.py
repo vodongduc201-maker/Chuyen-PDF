@@ -3,60 +3,73 @@ import pdfplumber
 import pandas as pd
 import io
 
-st.set_page_config(page_title="PDF to Excel Pro", layout="wide")
-st.title("🚀 Tool PDF sang Excel (Chia đúng cột Table)")
+# Cấu hình giao diện
+st.set_page_config(page_title="Chương Dương PDF Automation", layout="wide")
 
-uploaded_file = st.file_uploader("Tải file PDF báo cáo", type="pdf")
+st.title("🏭 Tool Chuyển Đổi Báo Cáo PDF sang Excel")
+st.markdown("---")
+
+# Hướng dẫn nhanh
+st.sidebar.header("Hướng dẫn")
+st.sidebar.info("""
+1. Tải file PDF báo cáo lên.
+2. Tool sẽ tự động nhận diện văn bản và bảng biểu.
+3. Mỗi trang PDF sẽ được tách thành 1 Sheet Excel riêng.
+""")
+
+uploaded_file = st.file_uploader("Chọn file PDF (Nhiều trang)", type="pdf")
 
 if uploaded_file:
-    with st.spinner('Đang phân tích cấu trúc bảng...'):
+    with st.spinner('Đang xử lý dữ liệu... Vui lòng đợi trong giây lát.'):
         output = io.BytesIO()
         
+        # Mở luồng ghi Excel chuyên sâu
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             with pdfplumber.open(uploaded_file) as pdf:
+                total_pages = len(pdf.pages)
+                
                 for i, page in enumerate(pdf.pages):
-                    # 1. Trích xuất bảng trước để lấy cấu trúc cột chuẩn
+                    # 1. Trích xuất bảng với thuật toán nhận diện đường kẻ
+                    # Điều này giúp chia cột A, B, C... chính xác như Table Excel
                     tables = page.extract_tables(table_settings={
                         "vertical_strategy": "lines",
                         "horizontal_strategy": "lines",
                         "snap_y_tolerance": 3,
                     })
                     
-                    # 2. Trích xuất văn bản tự do
+                    # 2. Trích xuất văn bản tự do (thông tin Header/Footer)
                     text = page.extract_text()
-                    text_lines = text.split('\n') if text else []
+                    lines = text.split('\n') if text else []
 
-                    # Tạo danh sách dữ liệu cuối cùng cho sheet này
-                    final_page_data = []
+                    # Tạo danh sách chứa dữ liệu của trang hiện tại
+                    current_page_rows = []
 
-                    # Đưa văn bản tự do vào (mỗi dòng là 1 list để nó nằm ở cột A)
-                    for line in text_lines:
-                        # Nếu dòng văn bản này trùng với nội dung trong bảng thì bỏ qua (tránh lặp)
-                        final_page_data.append([line]) 
+                    # Đưa văn bản tự do vào (Cố định ở cột đầu tiên)
+                    for line in lines:
+                        current_page_rows.append([line]) 
 
-                    final_page_data.append(["--- BẢNG CHI TIẾT ---"])
+                    current_page_rows.append([""]) # Dòng trống ngăn cách
+                    current_page_rows.append(["--- BẢNG CHI TIẾT ---"])
 
-                    # Đưa dữ liệu bảng vào (giữ nguyên danh sách các cột)
+                    # 3. Đưa bảng vào (Tách cột)
                     if tables:
                         for table in tables:
                             for row in table:
-                                # Làm sạch dữ liệu từng ô
+                                # Làm sạch dữ liệu: bỏ ký tự xuống dòng trong ô để không bị lỗi format
                                 clean_row = [str(cell).replace('\n', ' ') if cell else "" for cell in row]
-                                final_page_data.append(clean_row)
+                                current_page_rows.append(clean_row)
 
-                    # 3. Chuyển vào DataFrame
-                    # Cần đảm bảo DataFrame nhận diện đúng số cột lớn nhất
-                    df_page = pd.DataFrame(final_page_data)
-                    
-                    # Lưu vào sheet
+                    # 4. Tạo DataFrame và lưu vào Sheet tương ứng
+                    df = pd.DataFrame(current_page_rows)
                     sheet_name = f"Trang {i+1}"
-                    df_page.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
+                    df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
         
-        st.success(f"Đã xử lý {len(pdf.pages)} trang. Dữ liệu đã được chia cột!")
+        st.success(f"✅ Hoàn thành! Đã xử lý tổng cộng {total_pages} trang.")
 
+        # Nút tải xuống file kết quả
         st.download_button(
-            label="📥 Tải file Excel (Đã chia cột)",
+            label="📥 Tải file Excel (.xlsx)",
             data=output.getvalue(),
-            file_name="Bao_cao_dung_dinh_dang.xlsx",
+            file_name="Bao_cao_tong_hop.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
