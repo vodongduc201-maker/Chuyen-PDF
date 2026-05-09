@@ -3,73 +3,63 @@ import pdfplumber
 import pandas as pd
 import io
 
-# Cấu hình giao diện
-st.set_page_config(page_title="Chương Dương PDF Automation", layout="wide")
+st.set_page_config(page_title="PDF Automation Tool", layout="wide")
 
-st.title("🏭 Tool Chuyển Đổi Báo Cáo PDF sang Excel")
-st.markdown("---")
+st.title("🚀 Tool Chuyển Đổi Đặc Thù (Trang 1 + Excel Tabs)")
+st.info("Trang 1 sẽ giữ cấu trúc văn bản, các trang sau sẽ tách bảng vào từng Sheet.")
 
-# Hướng dẫn nhanh
-st.sidebar.header("Hướng dẫn")
-st.sidebar.info("""
-1. Tải file PDF báo cáo lên.
-2. Tool sẽ tự động nhận diện văn bản và bảng biểu.
-3. Mỗi trang PDF sẽ được tách thành 1 Sheet Excel riêng.
-""")
-
-uploaded_file = st.file_uploader("Chọn file PDF (Nhiều trang)", type="pdf")
+uploaded_file = st.file_uploader("Tải file PDF 29 trang của bạn lên", type="pdf")
 
 if uploaded_file:
-    with st.spinner('Đang xử lý dữ liệu... Vui lòng đợi trong giây lát.'):
+    with st.spinner('Đang xử lý dữ liệu...'):
         output = io.BytesIO()
         
-        # Mở luồng ghi Excel chuyên sâu
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             with pdfplumber.open(uploaded_file) as pdf:
-                total_pages = len(pdf.pages)
-                
                 for i, page in enumerate(pdf.pages):
-                    # 1. Trích xuất bảng với thuật toán nhận diện đường kẻ
-                    # Điều này giúp chia cột A, B, C... chính xác như Table Excel
-                    tables = page.extract_tables(table_settings={
-                        "vertical_strategy": "lines",
-                        "horizontal_strategy": "lines",
-                        "snap_y_tolerance": 3,
-                    })
+                    page_data = []
                     
-                    # 2. Trích xuất văn bản tự do (thông tin Header/Footer)
-                    text = page.extract_text()
-                    lines = text.split('\n') if text else []
+                    # XỬ LÝ TRANG 1: Giữ nguyên cấu trúc văn bản
+                    if i == 0:
+                        text = page.extract_text()
+                        if text:
+                            for line in text.split('\n'):
+                                page_data.append([line])
+                    
+                    # XỬ LÝ CÁC TRANG CÒN LẠI: Tách bảng chuyên sâu
+                    else:
+                        # Sử dụng thuật toán nhận diện đường kẻ để chia cột chuẩn
+                        tables = page.extract_tables(table_settings={
+                            "vertical_strategy": "lines",
+                            "horizontal_strategy": "lines",
+                            "snap_y_tolerance": 3,
+                            "intersection_x_tolerance": 3,
+                        })
+                        
+                        if tables:
+                            for table in tables:
+                                for row in table:
+                                    # Làm sạch ô dữ liệu
+                                    clean_row = [str(cell).replace('\n', ' ') if cell else "" for cell in row]
+                                    page_data.append(clean_row)
+                        else:
+                            # Nếu trang đó không có đường kẻ rõ ràng, dùng text thô
+                            text = page.extract_text()
+                            if text:
+                                for line in text.split('\n'):
+                                    page_data.append([line])
 
-                    # Tạo danh sách chứa dữ liệu của trang hiện tại
-                    current_page_rows = []
+                    # Ghi vào Sheet tương ứng
+                    if page_data:
+                        df = pd.DataFrame(page_data)
+                        sheet_name = f"Trang {i+1}"
+                        df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
 
-                    # Đưa văn bản tự do vào (Cố định ở cột đầu tiên)
-                    for line in lines:
-                        current_page_rows.append([line]) 
+        st.success(f"✅ Đã xử lý xong {len(pdf.pages)} trang!")
 
-                    current_page_rows.append([""]) # Dòng trống ngăn cách
-                    current_page_rows.append(["--- BẢNG CHI TIẾT ---"])
-
-                    # 3. Đưa bảng vào (Tách cột)
-                    if tables:
-                        for table in tables:
-                            for row in table:
-                                # Làm sạch dữ liệu: bỏ ký tự xuống dòng trong ô để không bị lỗi format
-                                clean_row = [str(cell).replace('\n', ' ') if cell else "" for cell in row]
-                                current_page_rows.append(clean_row)
-
-                    # 4. Tạo DataFrame và lưu vào Sheet tương ứng
-                    df = pd.DataFrame(current_page_rows)
-                    sheet_name = f"Trang {i+1}"
-                    df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
-        
-        st.success(f"✅ Hoàn thành! Đã xử lý tổng cộng {total_pages} trang.")
-
-        # Nút tải xuống file kết quả
         st.download_button(
-            label="📥 Tải file Excel (.xlsx)",
+            label="📥 Tải file Excel kết quả",
             data=output.getvalue(),
-            file_name="Bao_cao_tong_hop.xlsx",
+            file_name="Bao_cao_tach_trang_3.4.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
