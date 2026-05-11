@@ -6,53 +6,57 @@ import re
 from openpyxl.styles import Border, Side
 
 st.set_page_config(page_title="PDF Master Summary", layout="wide")
-st.title("📊 Master Tool: Chuyển đổi PDF sang Bảng Tổng Hợp")
+st.title("📊 Master Tool: Fix lỗi Cột D (Store Name)")
 
-uploaded_file = st.file_uploader("Tải file PDF 29 trang lên", type="pdf")
+uploaded_file = st.file_uploader("Tải file PDF của bạn lên", type="pdf")
 
 if uploaded_file:
-    with st.spinner('Đang nhặt dữ liệu và xử lý sạch...'):
+    with st.spinner('Đang nhặt dữ liệu...'):
         all_rows = []
         
         with pdfplumber.open(uploaded_file) as pdf:
-            # Duyệt từ trang 2 đến hết (Trang 1 là Purchase Note nên bỏ qua trong bản tổng hợp này)
+            # Duyệt từ trang 2 đến hết
             for i in range(1, len(pdf.pages)):
                 page = pdf.pages[i]
                 text = page.extract_text()
                 
-                # 1. Tìm thông tin chung của trang (SO, Date, Store) bằng Regex
+                # 1. Lấy SO, Order Date, Delivery Date
                 so_match = re.search(r"SO number:\s*(\d+)", text)
                 order_date = re.search(r"Order date:\s*([\d/ :]+)", text)
                 delivery_date = re.search(r"Delivery date:\s*([\d/]+)", text)
-                # Lấy tên Store sau chữ "For Store"
-                store_match = re.search(r"For Store\s*\n(.*?)\n", text)
                 
                 so = so_match.group(1) if so_match else ""
-                o_date = order_date.group(1).split()[0] if order_date else "" # Chỉ lấy ngày
+                o_date = order_date.group(1).split()[0] if order_date else ""
                 d_date = delivery_date.group(1) if delivery_date else ""
-                store = store_match.group(1).strip() if store_match else ""
 
-                # 2. Trích xuất bảng sản phẩm
+                # 2. LẤY TÊN STORE (Cột D) - Cách mới ổn định hơn
+                store = ""
+                lines = text.split('\n')
+                for idx, line in enumerate(lines):
+                    if "For Store" in line:
+                        # Thường tên Store nằm ở 1 hoặc 2 dòng ngay sau chữ "For Store"
+                        if idx + 1 < len(lines):
+                            store = lines[idx + 1].strip()
+                        break
+                
+                # 3. Trích xuất bảng sản phẩm
                 tables = page.extract_tables()
                 for table in tables:
                     for row in table:
-                        # Làm sạch dữ liệu ô
                         clean_row = [str(cell).replace('\n', ' ') if cell else "" for cell in row]
                         
-                        # Chỉ lấy dòng nếu cột đầu tiên là mã hàng (số)
+                        # Điều kiện lấy dòng sản phẩm: Cột 1 là số (Article)
                         article_id = clean_row[0].strip()
                         if article_id.isdigit() and len(article_id) >= 10:
-                            # Tạo dòng dữ liệu mới theo đúng cấu trúc bạn muốn
-                            new_row = {
+                            all_rows.append({
                                 "SO Number": so,
                                 "Order Date": o_date,
                                 "Delivery Date": d_date,
-                                "Store": store,
+                                "Store": store, # Thông tin cột D
                                 "Article": article_id,
                                 "Description": clean_row[1],
                                 "OU Qty": clean_row[5] if len(clean_row) > 5 else ""
-                            }
-                            all_rows.append(new_row)
+                            })
 
         if all_rows:
             df_final = pd.DataFrame(all_rows)
@@ -62,13 +66,13 @@ if uploaded_file:
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_final.to_excel(writer, index=False, sheet_name="Master Summary")
                 
-                # Đóng khung cho đẹp
+                # Đóng khung
                 ws = writer.sheets["Master Summary"]
                 thin = Side(style='thin')
                 for row in ws.iter_rows(min_row=1, max_row=len(all_rows)+1, max_col=7):
                     for cell in row:
                         cell.border = Border(top=thin, left=thin, right=thin, bottom=thin)
 
-            st.success("✅ Đã tạo xong bảng tổng hợp sạch 100%!")
-            st.dataframe(df_final)
-            st.download_button("📥 Tải file Excel Tổng Hợp", output.getvalue(), "Tong_Hop_Chi_Tiet.xlsx")
+            st.success("✅ Đã xử lý xong! Cột D đã có đầy đủ tên Store.")
+            st.dataframe(df_final) # Hiển thị xem trước để bạn kiểm tra cột D
+            st.download_button("📥 Tải file Excel Tổng Hợp", output.getvalue(), "Tong_Hop_Master.xlsx")
