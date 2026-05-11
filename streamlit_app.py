@@ -3,23 +3,29 @@ import pdfplumber
 import pandas as pd
 import io
 import re
-from openpyxl.styles import Border, Side
+from openpyxl.styles import Border, Side, Alignment, Font
 
-st.set_page_config(page_title="PDF Master Summary", layout="wide")
-st.title("📊 Master Tool: Lọc sạch tên Store (Cột D)")
+st.set_page_config(page_title="PDF to Master Summary", layout="wide")
 
-uploaded_file = st.file_uploader("Tải file PDF của bạn lên", type="pdf")
+st.title("🚀 Tool Chuyển Đổi PDF sang Bảng Tổng Hợp Master")
+st.markdown("""
+- **Trang 1:** Bỏ qua (Purchase Note).
+- **Trang 2-29:** Tự động lấy SO, Ngày tháng và **Tên Store (Cột C)**.
+- **Kết quả:** Một bảng dữ liệu sạch, có đóng khung để quản lý.
+""")
+
+uploaded_file = st.file_uploader("Tải file PDF 29 trang của bạn lên", type="pdf")
 
 if uploaded_file:
-    with st.spinner('Đang xử lý loại bỏ thông tin dư thừa...'):
+    with st.spinner('Đang phân tích cấu trúc ô và nhặt dữ liệu...'):
         all_rows = []
         
         with pdfplumber.open(uploaded_file) as pdf:
-            # Duyệt từ trang 2 đến hết
+            # Duyệt từ trang 2 (index 1) đến hết trang 29
             for i in range(1, len(pdf.pages)):
                 page = pdf.pages[i]
                 
-                # 1. Lấy thông tin Header bằng văn bản
+                # 1. Lấy thông tin chung (SO, Order Date, Delivery Date) bằng văn bản
                 text = page.extract_text()
                 so_match = re.search(r"SO number:\s*(\d+)", text)
                 order_date = re.search(r"Order date:\s*([\d/ :]+)", text)
@@ -29,57 +35,69 @@ if uploaded_file:
                 o_date = order_date.group(1).split()[0] if order_date else ""
                 d_date = delivery_date.group(1) if delivery_date else ""
 
-                # 2. LẤY TÊN STORE (CỘT D) CHÍNH XÁC THEO TỌA ĐỘ
-                # Chúng ta sẽ tìm chữ "For Store" và lấy nội dung ngay bên dưới nó
+                # 2. LẤY TÊN STORE CHUẨN XÁC TẠI CỘT C
                 store_name = ""
-                words = page.extract_words()
-                for idx, word in enumerate(words):
-                    if "For" in word['text'] and idx + 1 < len(words) and "Store" in words[idx+1]['text']:
-                        # Tìm các từ nằm ở dòng ngay dưới cụm "For Store" trong cùng khu vực dọc (x)
-                        target_y = word['bottom']
-                        target_x0 = word['x0'] - 10
-                        target_x1 = word['x1'] + 50
-                        
-                        store_words = [w['text'] for w in words if 
-                                       target_y < w['top'] < target_y + 25 and 
-                                       target_x0 < w['x0'] < target_x1 + 100]
-                        
-                        candidate = " ".join(store_words).strip()
-                        # Loại bỏ các từ khóa không mong muốn
-                        if "CTY TNHH" not in candidate and "LOGISTIC" not in candidate:
-                            store_name = candidate
-                        break
+                # Trích xuất bảng đầu tiên (chứa địa chỉ)
+                header_tables = page.extract_tables()
+                if header_tables:
+                    # Thông thường bảng Header là bảng đầu tiên của trang
+                    header_data = header_tables[0]
+                    # Dựa trên image_a4e7f5.png: 
+                    # Dòng 3 (index 2), Cột C (index 2) là tên Store dưới chữ "For Store"
+                    if len(header_data) >= 3 and len(header_data[2]) >= 3:
+                        store_name = str(header_data[2][2]).replace('\n', ' ').strip()
 
-                # 3. Trích xuất bảng sản phẩm
-                tables = page.extract_tables()
-                for table in tables:
+                # 3. Trích xuất bảng chi tiết sản phẩm
+                # Tìm tất cả các bảng và lọc bảng có chứa mã hàng
+                for table in header_tables:
                     for row in table:
                         clean_row = [str(cell).replace('\n', ' ') if cell else "" for cell in row]
-                        article_id = clean_row[0].strip()
                         
+                        # Điều kiện: Cột 1 là mã hàng (số) và độ dài >= 10
+                        article_id = clean_row[0].strip()
                         if article_id.isdigit() and len(article_id) >= 10:
                             all_rows.append({
                                 "SO Number": so,
                                 "Order Date": o_date,
                                 "Delivery Date": d_date,
-                                "Store": store_name, # Cột D đã được lọc sạch
+                                "Store Name": store_name, # Cột D trong Excel kết quả
                                 "Article": article_id,
                                 "Description": clean_row[1],
                                 "OU Qty": clean_row[5] if len(clean_row) > 5 else ""
                             })
 
         if all_rows:
+            # Tạo DataFrame
             df_final = pd.DataFrame(all_rows)
             
+            # Chuyển đổi số lượng sang kiểu số để tính toán nếu cần
+            df_final["OU Qty"] = pd.to_numeric(df_final["OU Qty"], errors='coerce')
+            
+            # Ghi ra file Excel
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_final.to_excel(writer, index=False, sheet_name="Master Summary")
-                ws = writer.sheets["Master Summary"]
+                df_final.to_excel(writer, index=False, sheet_name="Master_Summary")
+                
+                # Định dạng bảng Excel (Đóng khung + Căn giữa Header)
+                ws = writer.sheets["Master_Summary"]
                 thin = Side(style='thin')
+                border = Border(top=thin, left=thin, right=thin, bottom=thin)
+                
                 for row in ws.iter_rows(min_row=1, max_row=len(all_rows)+1, max_col=7):
                     for cell in row:
-                        cell.border = Border(top=thin, left=thin, right=thin, bottom=thin)
+                        cell.border = border
+                        if cell.row == 1:
+                            cell.font = Font(bold=True)
+                            cell.alignment = Alignment(horizontal="center")
 
-            st.success("✅ Đã xử lý xong! Cột D đã loại bỏ thông tin CTY TNHH DV EB và Kho vận.")
-            st.dataframe(df_final)
-            st.download_button("📥 Tải file Excel Tổng Hợp", output.getvalue(), "Ket_Qua_Tong_Hop.xlsx")
+            st.success(f"✅ Đã xử lý thành công {len(pdf.pages)} trang!")
+            st.dataframe(df_final) # Hiển thị bản xem trước
+            
+            st.download_button(
+                label="📥 Tải file Excel Tổng Hợp (Dữ liệu sạch)",
+                data=output.getvalue(),
+                file_name="Bao_cao_Tong_Hop_Master.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.warning("⚠️ Không tìm thấy dữ liệu phù hợp trong file PDF.")
