@@ -80,16 +80,29 @@ if uploaded_files:
             # Chuyển đổi số lượng sang kiểu số để tính toán nếu cần
             df_final["OU Qty"] = pd.to_numeric(df_final["OU Qty"], errors='coerce')
             
+            # Tạo bảng Pivot: Tổng số lượng theo SKU (Article + Description) x Store
+            pivot_df = pd.pivot_table(
+                df_final,
+                index=["Article", "Description"],
+                columns="Store Name",
+                values="OU Qty",
+                aggfunc="sum",
+                fill_value=0,
+            )
+            pivot_df["TOTAL"] = pivot_df.sum(axis=1)
+            pivot_df = pivot_df.reset_index()
+
             # Ghi ra file Excel
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_final.to_excel(writer, index=False, sheet_name="Master_Summary")
-                
-                # Định dạng bảng Excel (Đóng khung + Căn giữa Header)
-                ws = writer.sheets["Master_Summary"]
+                pivot_df.to_excel(writer, index=False, sheet_name="Pivot_SKU_by_Store")
+
                 thin = Side(style='thin')
                 border = Border(top=thin, left=thin, right=thin, bottom=thin)
-                
+
+                # Định dạng sheet Master_Summary (Đóng khung + Căn giữa Header)
+                ws = writer.sheets["Master_Summary"]
                 for row in ws.iter_rows(min_row=1, max_row=len(all_rows)+1, max_col=len(df_final.columns)):
                     for cell in row:
                         cell.border = border
@@ -97,14 +110,34 @@ if uploaded_files:
                             cell.font = Font(bold=True)
                             cell.alignment = Alignment(horizontal="center")
 
+                # Định dạng sheet Pivot_SKU_by_Store
+                ws_pivot = writer.sheets["Pivot_SKU_by_Store"]
+                for row in ws_pivot.iter_rows(min_row=1, max_row=len(pivot_df)+1, max_col=len(pivot_df.columns)):
+                    for cell in row:
+                        cell.border = border
+                        if cell.row == 1:
+                            cell.font = Font(bold=True)
+                            cell.alignment = Alignment(horizontal="center")
+                # Bôi đậm cột TOTAL cho dễ nhìn
+                total_col_idx = list(pivot_df.columns).index("TOTAL") + 1
+                for row in ws_pivot.iter_rows(min_row=2, max_row=len(pivot_df)+1,
+                                               min_col=total_col_idx, max_col=total_col_idx):
+                    for cell in row:
+                        cell.font = Font(bold=True)
+
             st.success(
                 f"✅ Đã xử lý thành công {len(uploaded_files)} file PDF "
                 f"({total_pages_processed} trang, {len(all_rows)} dòng dữ liệu)!"
             )
-            st.dataframe(df_final) # Hiển thị bản xem trước
+
+            st.subheader("📋 Sheet 1: Master_Summary (chi tiết từng dòng)")
+            st.dataframe(df_final)
+
+            st.subheader("📊 Sheet 2: Pivot_SKU_by_Store (tổng số lượng theo SKU x Store)")
+            st.dataframe(pivot_df)
 
             st.download_button(
-                label="📥 Tải file Excel Tổng Hợp (Dữ liệu sạch, đã gộp tất cả file)",
+                label="📥 Tải file Excel Tổng Hợp (2 sheet: chi tiết + pivot theo SKU/Store)",
                 data=output.getvalue(),
                 file_name="Bao_cao_Tong_Hop_Master.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
