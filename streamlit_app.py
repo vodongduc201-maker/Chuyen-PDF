@@ -42,19 +42,16 @@ if uploaded_files:
                     o_date = order_date.group(1).split()[0] if order_date else ""
                     d_date = delivery_date.group(1) if delivery_date else ""
 
-                    # 2. LẤY TÊN STORE VÀ ĐỊA CHỈ TẠI CỘT C
+                    # 2. LẤY TÊN STORE CHUẨN XÁC TẠI CỘT C
                     store_name = ""
-                    store_address = ""
                     # Trích xuất bảng đầu tiên (chứa địa chỉ)
                     header_tables = page.extract_tables()
                     if header_tables:
                         # Thông thường bảng Header là bảng đầu tiên của trang
                         header_data = header_tables[0]
-                        # Dòng 3 (index 2), Cột C (index 2) chứa "Tên Store\nĐịa chỉ...\nTỉnh/TP\nVietnam"
+                        # Dòng 3 (index 2), Cột C (index 2) là tên Store dưới chữ "For Store"
                         if len(header_data) >= 3 and len(header_data[2]) >= 3:
-                            cell_lines = str(header_data[2][2]).split("\n")
-                            store_name = cell_lines[0].strip()
-                            store_address = ", ".join(line.strip() for line in cell_lines[1:] if line.strip())
+                            store_name = str(header_data[2][2]).replace('\n', ' ').strip()
 
                     # 3. Trích xuất bảng chi tiết sản phẩm
                     # Tìm tất cả các bảng và lọc bảng có chứa mã hàng
@@ -71,7 +68,6 @@ if uploaded_files:
                                     "Order Date": o_date,
                                     "Delivery Date": d_date,
                                     "Store Name": store_name,  # Cột trong Excel kết quả
-                                    "Store Address": store_address,
                                     "Article": article_id,
                                     "Description": clean_row[1],
                                     "OU Qty": clean_row[5] if len(clean_row) > 5 else ""
